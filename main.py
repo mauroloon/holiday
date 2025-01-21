@@ -1,50 +1,97 @@
-import requests
-
-from typing import Tuple
+from typing import Union
+from fastapi import FastAPI
+from pydantic import BaseModel
+from pydantic.fields import Field
 from db_connection import get_connection
-from uuid import uuid4
+from fastapi import Query
+from fastapi.exceptions import HTTPException
+from datetime import datetime
+from fastapi.responses import JSONResponse
+    
+class HolidayResponse(BaseModel):
+    nombreFeriado: str
+    fecha: str
+    tipo: str
+    descripción: Union[str, None]
+    dia_semana: str
+    
+class ErrorResponse(BaseModel):
+    error: str
+    status_code: int = Field(400)
 
-STATUS_CODE_OK = 200
+app = FastAPI()
 
-
-def get_holidays_by_api(year: int) -> Tuple[int, dict]:
-    # https://apis.digital.gob.cl/fl/feriados/2024
-
-    url = f'https://apis.digital.gob.cl/fl/feriados/{year}/'
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+@app.get("/")
+def read_root():
+    return {"Test": "Test"}
+    
+@app.get(
+    "/date/",
+    response_model=Union[HolidayResponse, ErrorResponse],
+    summary="Obtiene información sobre un feriado dado una fecha específica.",
+    description="Obtiene información sobre un feriado dado una fecha específica.",
+    responses={
+        200: {
+            "model": HolidayResponse,
+            "description": "Información sobre el feriado"
+        },
+        400: {
+            "model": ErrorResponse,
+            "description": "Error de cliente: Fecha inválida o feriado no encontrado"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Error interno del servidor"
+        }
     }
+)
+def get_holiday_query(date: str = Query(...,example='2023-12-25',description="Fecha en formato YYYY-MM-DD")):
+    """
+    Obtiene información sobre un feriado dado una fecha específica.
 
-    response = requests.get(url, headers=headers)
-    response_json = response.json()
+    Args:
+        - date (str): Fecha en formato YYYY-MM-DD
     
-    return response.status_code, response_json
-
-def process_data_api(response_json: dict) -> dict:
-    connection = get_connection()
-    cursor = connection.cursor()
-
-    for holiday in response_json:
-        name = holiday['nombreFeriado']
-        date = holiday['fecha']
-        holiday_type = holiday['tipo']
-        description = holiday['descripcion']
-        day_week = holiday['dia_semana']
-
-        query = f'INSERT INTO public.holidays (id, "name", "date", "type", description, day_week) VALUES({uuid4()}, {name}, {date}, {holiday_type}, {description}, {day_week});'
-        cursor.execute(query)
-
-    connection.commit()
-    cursor.close()
-    
-
-if __name__ == '__main__':
-    
-    for year in range(2021, 2025):
-        status_code, response_json = get_holidays_by_api(year)
-        print(f'Year: {year}, Status Code: {status_code}')
-
-        if status_code == STATUS_CODE_OK:
-            process_data_api(response_json)
-            print('Data processed successfully')
-    
+    Returns:
+        - HolidayResponse: Información sobre el feriado en caso de encontrarlo
+    """
+    try:
+        year, month, day = map(int, date.split('-'))
+        
+        try:
+            datetime.strptime(date, '%Y-%m-%d')
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid date"}
+            )
+        
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        query = "SELECT * FROM public.holidays WHERE date = %s"
+        cursor.execute(query, (date,))
+        
+        holiday = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if holiday:
+            return {
+                'nombreFeriado': holiday[1],
+                'fecha': f'{day}-{month}-{year}',
+                'tipo': holiday[3],
+                'descripción': holiday[4], 
+                'dia_semana': holiday[5]
+            }
+        
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Holiday not found"}
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )

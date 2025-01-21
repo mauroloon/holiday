@@ -8,7 +8,7 @@ END
 $$;
 
 -- Dar privilegios al usuario
-GRANT ALL PRIVILEGES ON DATABASE holidaydb TO admin;
+GRANT ALL PRIVILEGES ON DATABASE postgres TO admin;
 
 -- Extensión UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

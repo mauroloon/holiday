@@ -3,6 +3,9 @@ from psycopg2 import Error
 from db_connection import get_connection
 
 def create_tables():
+    """
+    Crea la tabla en la base de datos.
+    """
     connection = None
     try:
         connection = get_connection()
